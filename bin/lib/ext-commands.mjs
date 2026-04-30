@@ -5,7 +5,7 @@ import { readFileSync, writeFileSync, existsSync, readdirSync, cpSync, mkdtempSy
 import { readFile, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
-import { loadExtensions, firePromptAppend, fireVerdictAppend, fireExecuteRun, fireArtifactEmit, writeFailureReport, saveRegistryCache, normalizeHook, lintCapability, enforceStrictMode, survivingExtensions } from "./extensions.mjs";
+import { loadExtensions, firePromptAppend, fireVerdictAppend, fireExecuteRun, fireArtifactEmit, fireNodePreflight, writeFailureReport, saveRegistryCache, normalizeHook, lintCapability, enforceStrictMode, survivingExtensions } from "./extensions.mjs";
 import { getFlag, atomicWriteSync, resolveDir, resolveDirReadOnly } from "./util.mjs";
 import { resolveFlowTemplate } from "./flow-templates.mjs";
 import { parseBypassArgs } from "./bypass-args.mjs";
@@ -305,7 +305,7 @@ export async function cmdExtensionTest(args) {
     // we only check the four firing hooks.
     const hookNames = Object.keys(hooks);
     const provides = Array.isArray(meta.provides) ? meta.provides : [];
-    const firingHookPresent = hookNames.some(h => h === "prompt.append" || h === "verdict.append" || h === "execute.run" || h === "artifact.emit");
+    const firingHookPresent = hookNames.some(h => h === "prompt.append" || h === "verdict.append" || h === "execute.run" || h === "artifact.emit" || h === "preflight");
     if (provides.length > 0 && hookNames.length === 0) {
       console.error(
         `[lint] ⚠️  hook mismatch: meta.provides declares [${provides.join(", ")}] ` +
@@ -547,5 +547,78 @@ export async function cmdExtensionArtifact(args) {
 
   // Strict mode: after writeFailureReport + handshake merge, exit non-zero
   // if any failures recorded (preserves isolation, signals to CI).
+  enforceStrictMode(registry);
+}
+
+// ─── node-preflight ─────────────────────────────────────────────
+//
+// Fires the `preflight` hook on matching extensions BEFORE a build node
+// executes. Extension preflight() is a pure function: it receives context
+// and returns data. Core writes the artifacts to the session dir.
+//
+// Usage: opc-harness node-preflight --node <id> --dir <harness-dir>
+
+export async function cmdNodePreflight(args) {
+  if (args.includes("--help")) {
+    console.error("Usage: opc-harness node-preflight --node <id> --dir <harness-dir>");
+    console.error("Fires preflight hook on matching extensions. Writes design artifacts to session dir.");
+    return;
+  }
+
+  const node = getFlag(args, "node");
+  const dir = resolveDirReadOnly(args);
+
+  if (!node) {
+    console.error("Usage: opc-harness node-preflight --node <id> --dir <harness-dir>");
+    process.exit(1);
+  }
+
+  const config = loadOpcConfig(dir);
+  Object.assign(config, parseBypassArgs(args), { flowDir: dir });
+  const task = readTaskFromAC(dir);
+
+  let registry;
+  try {
+    registry = await loadExtensions(config);
+  } catch (err) {
+    console.error(err.message);
+    process.exit(1);
+  }
+
+  const devServerUrl = getFlag(args, "dev-server") || process.env.DEV_SERVER_URL || config.devServerUrl || "";
+  const nodeCapabilities = readNodeCapabilities(dir, node, args);
+
+  const context = {
+    node,
+    role: "preflight",
+    task,
+    flowDir: resolve(dir),
+    devServerUrl,
+    nodeCapabilities,
+  };
+
+  const results = await fireNodePreflight(registry, context);
+
+  // Write failure report to the node's latest run dir (if exists)
+  const nodeDir = resolve(dir, "nodes", node);
+  const latestRunDir = findLatestRunDir(nodeDir);
+  if (latestRunDir) {
+    writeFailureReport(registry, latestRunDir);
+  }
+
+  saveRegistryCache(resolve(dir), registry);
+
+  // Report which artifact types were produced
+  const artifactTypes = results.map(r => r.type).filter(Boolean);
+
+  console.log(JSON.stringify({
+    ok: true,
+    node,
+    preflightResults: results.length,
+    artifactTypes,
+    extensionsApplied: survivingExtensions(registry),
+    nodeCapabilities,
+  }));
+
   enforceStrictMode(registry);
 }

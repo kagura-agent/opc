@@ -7,7 +7,7 @@ import { cmdVerify, cmdSynthesize, cmdTierBaseline } from "./lib/eval-commands.m
 import { cmdReport, cmdDiff } from "./lib/eval-report.mjs";
 import { cmdRoute, cmdInit, cmdValidate, cmdValidateContext, cmdSeal } from "./lib/flow-core.mjs";
 import { cmdTransition, cmdValidateChain, cmdFinalize, cmdAdvance } from "./lib/flow-transition.mjs";
-import { cmdPromptContext, cmdExtensionTest, cmdExtensionVerdict, cmdExtensionArtifact } from "./lib/ext-commands.mjs";
+import { cmdPromptContext, cmdExtensionTest, cmdExtensionVerdict, cmdExtensionArtifact, cmdNodePreflight } from "./lib/ext-commands.mjs";
 import { cmdConfigResolve } from "./lib/config-layering.mjs";
 import { cmdSkip, cmdPass, cmdStop, cmdGoto, cmdLs } from "./lib/flow-escape.mjs";
 import { cmdGc } from "./lib/util.mjs";
@@ -58,6 +58,7 @@ switch (command) {
   case "extension-test":        await cmdExtensionTest(args);  break;
   case "extension-verdict":     await cmdExtensionVerdict(args); break;
   case "extension-artifact":    await cmdExtensionArtifact(args); break;
+  case "node-preflight":        await cmdNodePreflight(args);     break;
   case "config":                await cmdConfigResolve(args);    break;
   case "runbook":               cmdRunbook(args);                break;
   case "clean":                 cmdClean(args);                  break;
@@ -119,6 +120,7 @@ switch (command) {
     console.log("  extension-verdict --node <id> --dir <p>            Fire verdict.append → writes eval-extensions.{md,json}");
     console.log("  extension-artifact --node <id> --dir <p>           Fire artifact.emit → writes artifacts/");
     console.log("  prompt-context --node <id> --role <role> --dir <p> Fire prompt.append → emit extra prompt context");
+    console.log("  node-preflight --node <id> --dir <p>            Fire preflight → write design artifacts to session dir");
     console.log();
     console.log("Loop commands (Layer 2 — zero trust):");
     console.log("  init-loop [--plan <file>] [--flow-template <name>] [--flow-file <p>] [--handlers <json>] [--dir <p>]");

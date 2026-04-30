@@ -361,11 +361,13 @@ export function normalizeHook(raw, mod) {
   if (typeof src.startupCheck === "function")   hooks["startup.check"]   = src.startupCheck;
   if (typeof src.executeRun === "function")     hooks["execute.run"]     = src.executeRun;
   if (typeof src.artifactEmit === "function")   hooks["artifact.emit"]   = src.artifactEmit;
+  if (typeof src.preflight === "function")       hooks["preflight"]       = src.preflight;
   if (typeof src["prompt.append"] === "function")   hooks["prompt.append"]   = src["prompt.append"];
   if (typeof src["verdict.append"] === "function")  hooks["verdict.append"]  = src["verdict.append"];
   if (typeof src["startup.check"] === "function")   hooks["startup.check"]   = src["startup.check"];
   if (typeof src["execute.run"] === "function")     hooks["execute.run"]     = src["execute.run"];
   if (typeof src["artifact.emit"] === "function")   hooks["artifact.emit"]   = src["artifact.emit"];
+  if (typeof src["preflight"] === "function")       hooks["preflight"]       = src["preflight"];
 
   return { hooks };
 }
@@ -977,6 +979,117 @@ export async function fireArtifactEmit(registry, context) {
   }
   if (registry._flowDir) saveBreakerState(registry._flowDir, registry);
   return emitted;
+}
+
+// ─── fireNodePreflight ──────────────────────────────────────────
+
+/**
+ * Call `preflight` on extensions whose `provides` matches context.nodeCapabilities.
+ * Preflight runs BEFORE a build node. Extensions return data, core writes artifacts.
+ *
+ * Each extension returns an object with a `type` field that determines which
+ * artifact writer is invoked. Currently supported types:
+ *   - "design" → writes design-mode.json, design-selection.json, design-brief.md,
+ *                 design-tokens.json to context.flowDir
+ *
+ * Returns array of `{ ...result, _ext }` objects (one per extension that fired).
+ */
+export async function fireNodePreflight(registry, context) {
+  const results = [];
+  warnMissingNodeCapsOnce(registry, context);
+  const requires = context.nodeCapabilities || [];
+
+  for (const ext of registry.extensions) {
+    if (!ext.enabled) continue;
+    if (!extensionMatches(requires, ext.meta.provides, ext.meta.compatibleCapabilities)) continue;
+
+    const fn = ext.hook?.hooks?.["preflight"];
+    if (typeof fn !== "function") continue;
+
+    try {
+      const result = await withTimeout(
+        Promise.resolve(fn(context)),
+        HOOK_TIMEOUT_MS,
+        `preflight timed out after ${HOOK_TIMEOUT_MS}ms`
+      );
+      if (result === undefined || result === null) {
+        recordSuccess(ext);
+        continue;
+      }
+      if (typeof result !== "object" || Array.isArray(result)) {
+        console.error(`WARN: extension ${ext.name} preflight returned ${typeof result}, expected object — ignoring`);
+        recordFailure(registry, ext, "preflight", "bad-return", `returned ${typeof result}, expected object`);
+        continue;
+      }
+      results.push({ ...result, _ext: ext.name });
+      recordSuccess(ext);
+    } catch (err) {
+      console.error(`WARN: extension ${ext.name} preflight failed:`, err.message);
+      const kind = isHookTimeoutError(err) ? "timeout" : "throw";
+      recordFailure(registry, ext, "preflight", kind, err.message);
+    }
+  }
+
+  // Write artifacts per type to the flow (session) directory.
+  if (context.flowDir) {
+    for (const result of results) {
+      if (result.type === "design") {
+        writeDesignArtifacts(result, context.flowDir);
+      }
+    }
+  }
+
+  if (registry._flowDir) saveBreakerState(registry._flowDir, registry);
+  return results;
+}
+
+/**
+ * Write design-related preflight artifacts to the session directory.
+ * Called by fireNodePreflight for results with type: "design".
+ *
+ * Writes up to 4 files:
+ *   - design-mode.json — activation mode + confidence
+ *   - design-selection.json — style inference result
+ *   - design-brief.md — human-readable prompt injection
+ *   - design-tokens.json — machine-readable CSS tokens
+ *
+ * Missing optional fields are silently skipped (no partial file writes).
+ */
+export function writeDesignArtifacts(preflightResult, sessionDir) {
+  mkdirSync(sessionDir, { recursive: true });
+
+  // design-mode.json — always written (contains the activation decision)
+  const designMode = {
+    mode: preflightResult.userOverride ? "explicit"
+      : (preflightResult.confidence >= 0.4 ? "auto" : "off"),
+    source: preflightResult.userOverride ? "user-override" : "inferred",
+    confidence: typeof preflightResult.confidence === "number" ? preflightResult.confidence : 0,
+    reason: preflightResult.reason || "",
+    userOverride: !!preflightResult.userOverride,
+    persist: !!preflightResult.persist,
+  };
+  atomicWriteSync(join(sessionDir, "design-mode.json"), JSON.stringify(designMode, null, 2) + "\n");
+
+  // design-selection.json — the full style inference output
+  if (preflightResult.selection && typeof preflightResult.selection === "object") {
+    atomicWriteSync(
+      join(sessionDir, "design-selection.json"),
+      JSON.stringify(preflightResult.selection, null, 2) + "\n"
+    );
+  }
+
+  // design-brief.md — markdown for prompt injection
+  if (typeof preflightResult.brief === "string" && preflightResult.brief.length > 0) {
+    atomicWriteSync(join(sessionDir, "design-brief.md"), preflightResult.brief);
+  }
+
+  // design-tokens.json — CSS-consumable token map
+  if (preflightResult.tokens && typeof preflightResult.tokens === "object") {
+    atomicWriteSync(
+      join(sessionDir, "design-tokens.json"),
+      JSON.stringify(preflightResult.tokens, null, 2) + "\n"
+    );
+  }
 }
 
 // ─── Failure report ──────────────────────────────────────────────

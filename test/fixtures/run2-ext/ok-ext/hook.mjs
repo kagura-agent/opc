@@ -49,3 +49,14 @@ export function artifactEmit(/* ctx */) {
     },
   ];
 }
+
+export function preflight(/* ctx */) {
+  return {
+    type: "design",
+    selection: { industry: "test", archetype: "ok-ext" },
+    brief: "# Design Brief\n\nTest brief from ok-ext.\n",
+    tokens: { colors: { bg: "#FFFFFF", text: "#000000" }, typography: {}, shape: {} },
+    confidence: 0.9,
+    reason: "test fixture",
+  };
+}
