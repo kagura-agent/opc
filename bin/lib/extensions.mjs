@@ -1031,10 +1031,18 @@ export async function fireNodePreflight(registry, context) {
   }
 
   // Write artifacts per type to the flow (session) directory.
+  // Isolated: a write failure for one result doesn't block siblings or
+  // prevent saveBreakerState from running.
   if (context.flowDir) {
     for (const result of results) {
       if (result.type === "design") {
-        writeDesignArtifacts(result, context.flowDir);
+        try {
+          writeDesignArtifacts(result, context.flowDir);
+        } catch (err) {
+          console.error(`WARN: writeDesignArtifacts failed for ${result._ext}: ${err.message}`);
+        }
+      } else if (result.type) {
+        console.error(`WARN: unknown preflight result type '${result.type}' from ${result._ext} — skipping artifact write`);
       }
     }
   }
@@ -1059,9 +1067,14 @@ export function writeDesignArtifacts(preflightResult, sessionDir) {
   mkdirSync(sessionDir, { recursive: true });
 
   // design-mode.json — always written (contains the activation decision)
+  // Mode semantics:
+  //   "explicit" — user explicitly set design tokens (userOverride=true)
+  //   "auto" — inferred from task. Confidence controls eval strictness:
+  //            >0.8 strict, 0.4-0.8 moderate, <0.4 general-only
+  //   "off" — only if extension explicitly returns mode="off"
   const designMode = {
     mode: preflightResult.userOverride ? "explicit"
-      : (preflightResult.confidence >= 0.4 ? "auto" : "off"),
+      : (preflightResult.mode === "off" ? "off" : "auto"),
     source: preflightResult.userOverride ? "user-override" : "inferred",
     confidence: typeof preflightResult.confidence === "number" ? preflightResult.confidence : 0,
     reason: preflightResult.reason || "",

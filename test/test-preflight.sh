@@ -247,8 +247,8 @@ else
   fail "node-preflight failed with mixed extensions: $SKIP_OUT"
 fi
 
-# ── 9. design-mode.json mode=off for low confidence ─────────────
-echo "§6 Low confidence → mode=off"
+# ── 9. design-mode.json mode=auto even for low confidence ────────
+echo "§6 Low confidence → still mode=auto (confidence controls strictness, not activation)"
 # Replace ok-ext with a low-confidence preflight
 cat > "$EXT_DIR/ok-ext/hook.mjs" <<'LCEOF'
 export const meta = { provides: ["verification@1"] };
@@ -261,10 +261,15 @@ rm -f "$HARNESS/design-mode.json"
 LOW_OUT=$(OPC_BREAKER_STATE=disabled $HARNESS_BIN node-preflight --node build --dir "$HARNESS" --flow-file "$FLOW_FILE" 2>/dev/null)
 if [ -f "$HARNESS/design-mode.json" ]; then
   LOW_MODE=$(cat "$HARNESS/design-mode.json")
-  if echo "$LOW_MODE" | grep -q '"mode": "off"'; then
-    ok "design-mode.json mode=off for confidence 0.2"
+  if echo "$LOW_MODE" | grep -q '"mode": "auto"'; then
+    ok "design-mode.json mode=auto for confidence 0.2 (auto regardless of confidence)"
   else
-    fail "expected mode=off for low confidence: $LOW_MODE"
+    fail "expected mode=auto for low confidence: $LOW_MODE"
+  fi
+  if echo "$LOW_MODE" | grep -q '"confidence": 0.2'; then
+    ok "confidence preserved at 0.2 for downstream strictness decisions"
+  else
+    fail "expected confidence=0.2: $LOW_MODE"
   fi
 else
   fail "design-mode.json not written for low confidence"
@@ -294,6 +299,27 @@ if [ -f "$HARNESS/design-mode.json" ]; then
   fi
 else
   fail "design-mode.json not written for userOverride"
+fi
+
+# ── 11. design-mode.json mode=off when extension explicitly says off ──
+echo "§8 Extension explicit mode=off"
+cat > "$EXT_DIR/ok-ext/hook.mjs" <<'OFFEOF'
+export const meta = { provides: ["verification@1"] };
+export function preflight() {
+  return { type: "design", mode: "off", confidence: 0.5, reason: "explicit off test" };
+}
+OFFEOF
+rm -f "$HARNESS/design-mode.json"
+OFF_OUT=$(OPC_BREAKER_STATE=disabled $HARNESS_BIN node-preflight --node build --dir "$HARNESS" --flow-file "$FLOW_FILE" 2>/dev/null)
+if [ -f "$HARNESS/design-mode.json" ]; then
+  OFF_MODE=$(cat "$HARNESS/design-mode.json")
+  if echo "$OFF_MODE" | grep -q '"mode": "off"'; then
+    ok "design-mode.json mode=off when extension explicitly returns mode=off"
+  else
+    fail "expected mode=off for explicit off: $OFF_MODE"
+  fi
+else
+  fail "design-mode.json not written for explicit off"
 fi
 
 # ── Summary ─────────────────────────────────────────────────────
