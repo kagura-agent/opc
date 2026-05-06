@@ -39,7 +39,7 @@ global npm bin dir (`npm bin -g`).
 
 ### `~/.opc/` bootstrap
 
-Extensions live under `~/.opc/extensions/<ext-name>/`. Rules:
+Extensions live under `~/.claude/skills/opc-extension/<ext-name>/`. Rules:
 
 - `~/.opc/` itself does **not** need to exist ahead of time. If the
   extensions dir is missing, the loader treats it as "zero extensions
@@ -53,7 +53,7 @@ Extensions live under `~/.opc/extensions/<ext-name>/`. Rules:
 - To bypass the scan entirely during development, point
   `opc-harness extension-test --ext <abs-path>` at a single directory —
   that command loads your extension directly without touching
-  `~/.opc/extensions/`.
+  `~/.claude/skills/opc-extension/`.
 
 ---
 
@@ -61,7 +61,7 @@ Extensions live under `~/.opc/extensions/<ext-name>/`. Rules:
 
 An OPC extension is a **directory on disk** containing a `hook.mjs` ES module
 and a small `ext.json` manifest. When OPC runs a task pipeline, it scans
-`~/.opc/extensions/` (or whatever `OPC_EXTENSIONS_DIR` points at), dynamically
+`~/.claude/skills/opc-extension/` (or whatever `OPC_EXTENSIONS_DIR` points at), dynamically
 imports each `hook.mjs`, and invokes named hooks at well-defined call sites
 inside the orchestrator — appending text to role prompts, adding findings to
 evaluator verdicts, running side-effectful checks during executor nodes, and
@@ -153,8 +153,8 @@ Rules:
 ## 2. Quickstart (5 minutes)
 
 ```bash
-mkdir -p ~/.opc/extensions/hello-world
-cd ~/.opc/extensions/hello-world
+mkdir -p ~/.claude/skills/opc-extension/hello-world
+cd ~/.claude/skills/opc-extension/hello-world
 ```
 
 **`ext.json`**
@@ -189,7 +189,7 @@ export async function promptAppend(ctx) {
 
 ```bash
 opc-harness extension-test \
-  --ext ~/.opc/extensions/hello-world \
+  --ext ~/.claude/skills/opc-extension/hello-world \
   --all-hooks \
   --context '{"task":"build a login page","nodeCapabilities":["context-enrichment@1"]}'
 ```
@@ -204,7 +204,7 @@ That's it — you've written, installed, and validated an extension.
 ### 3.1 Directory layout
 
 ```
-~/.opc/extensions/
+~/.claude/skills/opc-extension/
   my-ext/
     ext.json         # manifest (name, version, description, meta)
     hook.mjs         # ES module exporting hooks + meta (REQUIRED)
@@ -1439,7 +1439,7 @@ revision.
 
 | Variable                          | Default                        | Effect                                                                  |
 |-----------------------------------|--------------------------------|-------------------------------------------------------------------------|
-| `OPC_EXTENSIONS_DIR`              | `~/.opc/extensions`            | Directory scanned for extension subdirs.                                |
+| `OPC_EXTENSIONS_DIR`              | `~/.claude/skills/opc-extension`            | Directory scanned for extension subdirs.                                |
 | `OPC_HOOK_TIMEOUT_MS`             | `60000`                        | Core safety-net timeout per hook invocation.                            |
 | `OPC_HOOK_FAILURE_THRESHOLD`      | `3`                            | Consecutive failures before circuit breaker trips (`0` disables).       |
 | `OPC_HOOK_FAILURE_LOG_CAP`        | `200`                          | Max entries in `registry.failures[]` before FIFO drops.                 |

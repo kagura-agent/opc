@@ -330,13 +330,13 @@ Example `config.json` with explicit order:
 ```bash
 # Test a single hook
 opc-harness extension-test \
-  --ext ~/.opc/extensions/design-system \
+  --ext ~/.claude/skills/opc-extension/design-system \
   --hook prompt.append \
   --context '{"node":"build","role":"frontend","task":"build login page","flowDir":"/tmp/test-harness","runDir":"/tmp/test-harness/nodes/build/run_1"}'
 
 # Test all hooks in sequence
 opc-harness extension-test \
-  --ext ~/.opc/extensions/design-system \
+  --ext ~/.claude/skills/opc-extension/design-system \
   --all-hooks \
   --context '{"node":"code-review","role":"frontend","task":"review login page","flowDir":"/tmp/test-harness","runDir":"/tmp/test-harness/nodes/code-review/run_1"}'
 ```
@@ -367,15 +367,15 @@ Zero magic. Three steps:
 
 ```bash
 # Step 1: Place files
-mkdir -p ~/.opc/extensions/design-system
-cp hook.mjs prompt.md ~/.opc/extensions/design-system/
+mkdir -p ~/.claude/skills/opc-extension/design-system
+cp hook.mjs prompt.md ~/.claude/skills/opc-extension/design-system/
 
 # Step 2: Declare as required (edit manually)
 # ~/.opc/config.json → "requiredExtensions": ["design-system"]
 
 # Step 3: Verify
 opc-harness extension-test \
-  --ext ~/.opc/extensions/design-system \
+  --ext ~/.claude/skills/opc-extension/design-system \
   --all-hooks \
   --context '{"node":"code-review","role":"frontend","task":"smoke test","flowDir":"/tmp/test-harness","runDir":"/tmp/test-harness/nodes/code-review/run_1"}'
 ```
