@@ -95,8 +95,22 @@ function parseVerdict(content) {
   // Format A: ## Verdict\n\n**WORD**  (next-line, bold)
   // Format B: ## Verdict: **WORD**   (inline, bold)
   // Format C: ## Verdict: WORD       (inline, no bold)
-  const m = content.match(/##\s*(?:Overall\s+)?Verdict[:\s]*(?:\n+\s*)?\*{0,2}(\w+)\*{0,2}/i);
-  return m ? m[1].toUpperCase() : null;
+  // Format D: ## Overall Verdict\n\n**CONDITIONAL ACCEPT** (multi-word)
+  const m = content.match(/##\s*(?:Overall\s+)?Verdict[:\s]*(?:\n+\s*)?\*{0,2}([A-Z][A-Za-z *]+?)\*{0,2}\s*(?:—|$)/im)
+         || content.match(/##\s*(?:Overall\s+)?Verdict[:\s]*(?:\n+\s*)?\*{0,2}(\w+)\*{0,2}/i);
+  return m ? normalizeVerdict(m[1].trim()) : null;
+}
+
+// --- Normalize verdict strings ---
+function normalizeVerdict(raw) {
+  if (!raw) return null;
+  const s = raw.toUpperCase().replace(/\s+/g, '_');
+  if (s === 'FAIL' || s === 'FAILED') return 'FAIL';
+  if (s.startsWith('CONDITIONAL')) return 'CONDITIONAL';
+  if (s === 'ITERATE' || s === 'NEEDS_WORK') return 'ITERATE';
+  if (s === 'LGTM' || s === 'PASS' || s === 'ACCEPTED' || s === 'COMPLETED') return 'PASS';
+  if (s === 'PASS*') return 'PASS*';
+  return raw.toUpperCase();
 }
 
 // --- Parse counselor name from heading ---
@@ -146,16 +160,58 @@ const r2Partial = allR2Findings.filter(f => f.status === '⚠️').length;
 const r2NotFixed = allR2Findings.filter(f => f.status === '❌').length;
 const hasR2 = r2Nodes.length > 0;
 
-// Overall verdict
-function overallVerdict() {
-  if (!hasR2) {
-    if (critCount > 0) return 'FAIL';
-    if (medCount > 0) return 'ITERATE';
-    return 'PASS';
+// Overall verdict — considers tick history, eval verdicts, AND finding counts
+const VERDICT_RANK = { FAIL: 0, CONDITIONAL: 1, ITERATE: 2, 'PASS*': 3, PASS: 4 };
+function worstVerdict(a, b) {
+  return (VERDICT_RANK[a] ?? 99) <= (VERDICT_RANK[b] ?? 99) ? a : b;
+}
+
+// Collect tick-level verdicts from loop state — deduplicate by unit (latest tick wins)
+const tickByUnit = new Map();
+for (const t of (loopState?._tick_history || [])) {
+  const v = normalizeVerdict(t.verdict || t.status || '');
+  if (v && VERDICT_RANK[v] !== undefined) {
+    tickByUnit.set(t.unit || t.tick, v); // later tick for same unit overwrites earlier
   }
-  if (r2NotFixed > 0) return 'FAIL';
-  if (r2Partial > 0) return 'PASS*';
-  return 'PASS';
+}
+const tickVerdicts = [...tickByUnit.values()];
+
+// Collect parsed eval verdicts — R2 overrides R1 per node
+const evalVerdictsByNode = new Map();
+for (const n of r1Nodes) {
+  if (n.verdict && VERDICT_RANK[n.verdict] !== undefined) {
+    evalVerdictsByNode.set(n.nodeId, n.verdict);
+  }
+}
+for (const n of r2Nodes) {
+  if (n.verdict && VERDICT_RANK[n.verdict] !== undefined) {
+    evalVerdictsByNode.set(n.nodeId, n.verdict); // R2 overrides R1 for same node
+  }
+}
+const evalVerdicts = [...evalVerdictsByNode.values()];
+
+function overallVerdict() {
+  // Start with finding-based verdict
+  let verdict = 'PASS';
+  if (!hasR2) {
+    if (critCount > 0) verdict = 'FAIL';
+    else if (medCount > 0) verdict = 'ITERATE';
+  } else {
+    if (r2NotFixed > 0) verdict = 'FAIL';
+    else if (r2Partial > 0) verdict = 'PASS*';
+  }
+
+  // Incorporate tick history verdicts (loop mode)
+  for (const tv of tickVerdicts) {
+    verdict = worstVerdict(verdict, tv);
+  }
+
+  // Incorporate parsed eval verdicts
+  for (const ev of evalVerdicts) {
+    verdict = worstVerdict(verdict, ev);
+  }
+
+  return verdict;
 }
 
 // Node verdict from R1 findings
@@ -165,13 +221,13 @@ function nodeVerdict(findings) {
   return 'PASS';
 }
 function verdictColor(v) {
-  if (v === 'PASS' || v === 'PASS*') return 'var(--green)';
-  if (v === 'ITERATE') return 'var(--yellow)';
+  if (v === 'PASS' || v === 'PASS*' || v === 'LGTM') return 'var(--green)';
+  if (v === 'ITERATE' || v === 'CONDITIONAL') return 'var(--yellow)';
   return 'var(--red)';
 }
 function verdictBg(v) {
-  if (v === 'PASS' || v === 'PASS*') return 'rgba(34,197,94,0.12)';
-  if (v === 'ITERATE') return 'rgba(234,179,8,0.12)';
+  if (v === 'PASS' || v === 'PASS*' || v === 'LGTM') return 'rgba(34,197,94,0.12)';
+  if (v === 'ITERATE' || v === 'CONDITIONAL') return 'rgba(234,179,8,0.12)';
   return 'rgba(239,68,68,0.12)';
 }
 
@@ -263,6 +319,7 @@ ${renderStats(verd)}
 ${renderR1Findings()}
 ${hasR2 ? renderFixes() : ''}
 ${hasR2 ? renderR2Verdicts() : ''}
+${renderTickHistory()}
 ${renderFooter()}
 </div>
 </body>
@@ -392,6 +449,27 @@ ${n.notFixed ? `<span style="background:rgba(239,68,68,.1);color:var(--red)">❌
 </div>
 </div>`;
   }).join('')}
+</div>`;
+}
+
+function renderTickHistory() {
+  const history = loopState?._tick_history || [];
+  if (!history.length) return '';
+  return `<div class="section">
+<div class="section-title">🕐 Tick History (${history.length} ticks)</div>
+<div class="card" style="overflow-x:auto">
+<table class="findings-table">
+<thead><tr><th>Tick</th><th>Unit</th><th>Verdict</th></tr></thead>
+<tbody>${history.map(t => {
+    const v = normalizeVerdict(t.verdict || t.status || '') || 'UNKNOWN';
+    return `<tr>
+<td>${t.tick ?? '—'}</td>
+<td style="font-family:'SF Mono',Menlo,monospace;font-size:.85rem">${esc(t.unit || '—')}</td>
+<td><span class="badge" style="background:${verdictBg(v)};color:${verdictColor(v)}">${esc(v)}</span></td>
+</tr>`;
+  }).join('')}</tbody>
+</table>
+</div>
 </div>`;
 }
 
