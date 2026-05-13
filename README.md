@@ -4,32 +4,6 @@
 
 16 specialist agents (PM, Designer, Security, Devil's Advocate, and more) that build, review, and evaluate your code through a digraph-based pipeline with code-enforced quality gates.
 
-## What's Different in v0.8
-
-**Compound eval quality gate (D2).** 11-layer substance check on every eval — thin content, missing code refs, low uniqueness, fabricated references, aspirational claims, change scope coverage, etc. ≥3 layers tripped → hard FAIL (enforce by default); `--no-strict` downgrades to shadow mode. thinEval substance exemption: short evals with complete reasoning/fix/refs are exempt. Evaluator guidance: when D2 triggers, `evaluatorGuidance` output tells the evaluator exactly which layers failed and how to fix.
-
-**Iteration escalation (D3).** Persistent eval warnings across ≥2 iterations auto-escalate to FAIL. No more infinite loops of shallow reviews.
-
-**Task Scope Registry.** Loop mode plans require `## Task Scope` with SCOPE-N items. The harness validates at init and blocks completion if any scope item is uncovered — preventing the #1 failure mode where LLM decomposition silently drops requirements.
-
-**Pipeline E2E lint.** Tasks containing pipeline keywords (cron, webhook, CI/CD) must have an e2e-live-trigger acceptance criterion. Proxy evidence (unit tests) ≠ live evidence.
-
-**Evaluator prompt hardening (D6).** 5 evidence standards baked into the evaluator protocol: cite evidence, address anomalies, no aspirational claims, distinguish root cause vs symptom, cover change scope.
-
-## What's Different in v0.7
-
-**Third-party extension authoring.** `docs/extension-authoring.md` (7800+ words) + `examples/extensions/_starter/` (30-min walkthrough). Hardened via DX litmus: an independent agent built an extension using only the doc + starter.
-
-## What's Different in v0.6
-
-**Digraph engine.** Tasks flow through typed nodes (build → review → gate → ...) with mechanical verdict routing. No more linear pipelines.
-
-**Autonomous loop.** `opc loop` decomposes a feature into units, schedules a durable cron, and runs 8-16 hours unattended — with code-enforced guardrails that survive context compaction.
-
-**Code-enforced, not honor-system.** 29 test suites verify: tamper detection (write nonce), atomic state writes, review independence, oscillation detection, tick limits, scope coverage, compound defense, and JSON crash recovery.
-
-**External validator integration.** Pre-commit hooks, test suites, Playwright E2E, and CI pipelines are formally part of the quality architecture — the agent is supervised by tools it doesn't control.
-
 ## How It Works
 
 One principle: **the agent that does the work never evaluates it.**
@@ -47,6 +21,17 @@ Task → Flow Selection → Node Execution → Gate Verdict → Route Next
 3. **Mechanical gates** — verdicts are computed by `opc-harness synthesize`: any red = FAIL, any yellow = ITERATE, all green = PASS. No LLM gets to decide if a finding is "important enough."
 
 4. **Cycle limits** — max 3 loops per edge, 5 re-entries per node, 20-30 total steps depending on flow. Oscillation detection catches A↔B loops.
+
+### Quality Architecture
+
+![Zero-Trust Quality Architecture](docs/assets/design_philosophy.png)
+
+The system is built on a zero-trust axiom: **every critical output must have an independent verification path.** Four layers:
+
+- **L0 — Zero Trust**: Decision axiom — not code, not prompt. Every critical output needs an independent verification path.
+- **L1 — Shape Single Agent**: Intervene during token generation — persona setting, anti-pattern tables, mandatory output structure, scope anchoring, quality gates.
+- **L2 — Design Agent Flow**: Multi-agent coordination — separation of concerns, flow topology (parallel review / sequential build), context isolation (file-based handoff, fresh agents, no session reuse).
+- **L3 — Deterministic Enforcement**: The only layer that doesn't need LLM compliance — mechanical ops (severity counting, verdict rules, oscillation diff) and hardened verification (file-finding evidence checks, hedging scans, ref validation).
 
 ## Quick Start
 
@@ -90,30 +75,7 @@ cp -r opc ~/.claude/skills/opc
 /opc goto build    # jump to node
 ```
 
-## Extensions
-
-OPC has a capability-routed extension surface. Extensions live in
-`~/.claude/skills/opc-extension/<name>/` — each with `ext.json` (capability
-declarations) + `hook.mjs` exporting any of `promptAppend` / `verdictAppend`
-/ `executeRun` / `artifactEmit` hooks. No fork, no rebuild. Hooks are
-sandboxed via per-extension timeouts + circuit breakers, so a broken
-third-party extension can't take down the harness.
-
-The companion repo **[opc-extensions](https://github.com/iamtouchskyer/opc-extensions)** ships 4 extensions: `design-intelligence` (theme injection + design coverage + VLM visual eval), `git-changeset-review`, `memex-recall`, and `session-logex`.
-
-Full authoring guide: **[docs/extension-authoring.md](docs/extension-authoring.md)** — zero-OPC-context
-quickstart + reference, plus a starter template at `examples/extensions/_starter/`.
-
-## Flow Templates
-
-| Template | Nodes | When |
-|----------|-------|------|
-| **review** | code-review → gate | PR review, audit, "find problems" |
-| **build-verify** | build → code-review → test-design → test-execute → gate | "implement X", "fix bug Y" |
-| **full-stack** | discuss → build → review → test → acceptance → audit → e2e → gates | Complex/vague requests |
-| **pre-release** | acceptance → audit → e2e → gates | "verify before release" |
-
-## Autonomous Loop (v0.6)
+## Autonomous Loop
 
 ```bash
 /opc loop build the math tutoring app features F1-F4
@@ -127,6 +89,8 @@ What happens:
 5. **Execute** — each tick runs one unit through the appropriate OPC flow
 6. **Guard** — `opc-harness` enforces: git commit required, ≥2 independent reviewers, no plan tampering, no state forgery, artifact freshness, tick limits
 7. **Terminate** — auto-stops when plan complete, tick limit hit, or wall-clock deadline reached
+
+For well-scoped tasks, the system runs **10+ hours continuously** without intervention.
 
 ### Guardrails (code-enforced, not prompt-level)
 
@@ -143,6 +107,29 @@ What happens:
 | Concurrent tick mutex | in_progress status blocks overlapping cron fires |
 | JSON crash recovery | try/catch on all JSON.parse; structured errors, not crashes |
 | External validators | Pre-commit hooks, test suites detected at init and leveraged |
+
+## Flow Templates
+
+| Template | Nodes | When |
+|----------|-------|------|
+| **review** | code-review → gate | PR review, audit, "find problems" |
+| **build-verify** | build → code-review → test-design → test-execute → gate | "implement X", "fix bug Y" |
+| **full-stack** | discuss → build → review → test → acceptance → audit → e2e → gates | Complex/vague requests |
+| **pre-release** | acceptance → audit → e2e → gates | "verify before release" |
+
+## Extensions
+
+OPC has a capability-routed extension surface. Extensions live in
+`~/.claude/skills/opc-extension/<name>/` — each with `ext.json` (capability
+declarations) + `hook.mjs` exporting any of `promptAppend` / `verdictAppend`
+/ `executeRun` / `artifactEmit` hooks. No fork, no rebuild. Hooks are
+sandboxed via per-extension timeouts + circuit breakers, so a broken
+third-party extension can't take down the harness.
+
+The companion repo **[opc-extensions](https://github.com/iamtouchskyer/opc-extensions)** ships 4 extensions: `design-intelligence` (theme injection + design coverage + VLM visual eval), `git-changeset-review`, `memex-recall`, and `session-logex`.
+
+Full authoring guide: **[docs/extension-authoring.md](docs/extension-authoring.md)** — zero-OPC-context
+quickstart + reference, plus a starter template at `examples/extensions/_starter/`.
 
 ## Built-in Roles
 
@@ -186,25 +173,6 @@ bash test/run-all.sh
 
 84 test files covering init-loop, complete-tick, next-tick, review independence, JSON crash recovery, compound defense, scope registry, criteria lint, pipeline E2E lint, D2 calibration, and orchestrator-level E2E flow tests.
 
-## Reproducing benchmarks
-
-OPC ships with an extension system (v0.5, Run 1) so you can plug in additional hooks — visual checks, design-system audits, a11y scans — without forking the skill. The extension loader honors three bypasses so a single harness invocation can ignore locally-configured extensions:
-
-```bash
-# Disable every extension for one harness run
-OPC_DISABLE_EXTENSIONS=1 node bin/opc-harness.mjs init --flow review --entry review --dir .harness
-
-# Same effect, CLI flag form
-node bin/opc-harness.mjs init --flow review --entry review --dir .harness --no-extensions
-
-# Whitelist specific extensions only
-node bin/opc-harness.mjs init --flow review --entry review --dir .harness --extensions visual-check,a11y
-```
-
-Priority order: `OPC_DISABLE_EXTENSIONS=1` env var > `--no-extensions` CLI flag > `--extensions foo,bar` whitelist > config in `~/.claude/skills/opc-extension/config.json`. See `docs/specs/2026-04-16-opc-extension-system-design.md` for the full contract.
-
-**Note:** `bash test/run-all.sh` runs OPC's own internal test suite, which includes tests that intentionally *load* extensions to exercise the system. Don't set `OPC_DISABLE_EXTENSIONS=1` when running the suite — use the bypasses only on real benchmarking / workflow invocations.
-
 ## Requirements
 
 - [Claude Code](https://claude.ai/code) (CLI, desktop app, or IDE extension)
@@ -218,6 +186,10 @@ OPC works standalone — pair it with [memex](https://github.com/iamtouchskyer/m
 ```bash
 npm install -g @touchskyer/memex
 ```
+
+## What's New
+
+See [CHANGELOG.md](CHANGELOG.md) for version history.
 
 ## Community
 
