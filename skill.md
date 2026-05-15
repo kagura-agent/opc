@@ -1,6 +1,6 @@
 ---
 name: opc
-version: 0.10.1
+version: 0.10.2
 description: "OPC — One Person Company. Digraph-based task pipeline with independent multi-role evaluation. Builds, reviews, analyzes, and brainstorms with specialist agents. Every path ends with evaluation. /opc <task>, /opc -i <task>, /opc <role> [role...]"
 ---
 

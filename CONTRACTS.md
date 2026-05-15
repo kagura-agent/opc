@@ -7,7 +7,7 @@
 OPC Harness version: read from `HARNESS_VERSION` in `bin/lib/flow-templates.mjs`.
 Currently: `0.10.0`.
 
-`HARNESS_VERSION` is the external-flow compatibility line, not the npm package patch version. For example, `@touchskyer/opc@0.10.1` can expose harness compatibility `0.10.0`; patch releases do not require external flow authors to change `opc_compat`.
+`HARNESS_VERSION` is the external-flow compatibility line, not the npm package patch version. For example, `@touchskyer/opc@0.10.2` can expose harness compatibility `0.10.0`; patch releases do not require external flow authors to change `opc_compat`.
 
 External consumers declare compatibility via `opc_compat: ">=0.10"` — see [Flow Templates](#4-custom-flow-templates) below.
 
