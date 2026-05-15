@@ -171,13 +171,14 @@ Available immediately, no configuration needed.
 bash test/run-all.sh
 ```
 
-84 test files covering init-loop, complete-tick, next-tick, review independence, JSON crash recovery, compound defense, scope registry, criteria lint, pipeline E2E lint, D2 calibration, and orchestrator-level E2E flow tests.
+100+ test files covering init-loop, complete-tick, next-tick, review independence, JSON crash recovery, compound defense, scope registry, criteria lint, pipeline E2E lint, D2 calibration, release packaging, and orchestrator-level E2E flow tests.
 
 ## Requirements
 
 - [Claude Code](https://claude.ai/code) (CLI, desktop app, or IDE extension)
 - Node.js >= 18
-- No runtime dependencies, no MCP server, no build step
+- Core runtime has no npm dependencies, no MCP server, no build step
+- Optional: `jq` for `opc install-hooks` context-compaction hooks
 
 ## Works better with memex (optional)
 

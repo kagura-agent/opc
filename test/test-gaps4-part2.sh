@@ -65,6 +65,21 @@ assert_contains "$OUT" "unknown flow template" "2.7a: opc_compat too high → fl
 rm -rf "$D"
 cd /tmp
 
+cat > "$HOME/.claude/flows/test-cs-compat-current.json" << 'EOF'
+{
+  "nodes": ["a","b"],
+  "edges": {"a": {"PASS": "b"}, "b": {"PASS": null}},
+  "limits": {"maxLoopsPerEdge": 3, "maxTotalSteps": 10, "maxNodeReentry": 5},
+  "opc_compat": ">=0.10"
+}
+EOF
+D=$(mktemp -d)
+cd "$D"
+OUT=$($HARNESS init --flow test-cs-compat-current --dir . 2>/dev/null)
+assert_field_eq "$OUT" "['created']" "True" "2.7b: opc_compat >=0.10 accepted by current harness"
+rm -rf "$D"
+cd /tmp
+
 # ─────────────────────────────────────────────────────────────────
 echo ""
 echo "── 2.8: malformed JSON in external flow file → skip"
@@ -271,6 +286,7 @@ rm -rf "$D"
 cd /tmp
 
 rm -f "$HOME/.claude/flows/test-cs-compat-high.json"
+rm -f "$HOME/.claude/flows/test-cs-compat-current.json"
 rm -f "$HOME/.claude/flows/test-cs-malformed.json"
 rm -f "$HOME/.claude/flows/test-cs-noflds.json"
 rm -f "$HOME/.claude/flows/test-cs-emptynodes.json"

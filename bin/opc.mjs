@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, cpSync, rmSync, readdirSync, readFileSync, write
 import { join, dirname } from "path";
 import { homedir } from "os";
 import { fileURLToPath } from "url";
+import { spawnSync } from "child_process";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SKILL_NAME = "opc";
@@ -21,6 +22,19 @@ const STALE_FILES = [
 
 const pkg = JSON.parse(readFileSync(join(srcDir, "package.json"), "utf8"));
 const command = process.argv[2];
+
+function validateHookPrereqs(hooksDir) {
+  for (const file of ["opc-pre-compact.sh", "opc-post-compact.sh"]) {
+    if (!existsSync(join(hooksDir, file))) {
+      return `missing hook script: ${join(hooksDir, file)}. Run 'opc install' first.`;
+    }
+  }
+  const jq = spawnSync("jq", ["--version"], { encoding: "utf8" });
+  if (jq.error || jq.status !== 0) {
+    return "opc install-hooks requires 'jq'. Install jq, then rerun 'opc install-hooks'.";
+  }
+  return null;
+}
 
 switch (command) {
   case "install": {
@@ -69,8 +83,13 @@ switch (command) {
     if (!settings.hooks) settings.hooks = {};
 
     const hooksDir = join(skillsDir, "bin", "hooks");
-    const preCmd = `bash "${join(hooksDir, "opc-pre-compact.sh")}" 2>/dev/null || true`;
-    const postCmd = `bash "${join(hooksDir, "opc-post-compact.sh")}" 2>/dev/null || true`;
+    const prereqError = validateHookPrereqs(hooksDir);
+    if (prereqError) {
+      console.error(`✗ ${prereqError}`);
+      process.exit(1);
+    }
+    const preCmd = `bash "${join(hooksDir, "opc-pre-compact.sh")}"`;
+    const postCmd = `bash "${join(hooksDir, "opc-post-compact.sh")}"`;
 
     // Merge PreCompact — preserve existing hooks
     if (!settings.hooks.PreCompact) settings.hooks.PreCompact = [];
@@ -96,6 +115,7 @@ switch (command) {
 
     writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
     console.log(`✓ OPC compact hooks registered in ${settingsPath}`);
+    console.log(`  Verified: hook scripts present and jq available.`);
     console.log(`  PreCompact:  snapshots active flow state before compaction`);
     console.log(`  PostCompact: injects resume context after compaction`);
     break;

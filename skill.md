@@ -1,6 +1,6 @@
 ---
 name: opc
-version: 0.10.0
+version: 0.10.1
 description: "OPC — One Person Company. Digraph-based task pipeline with independent multi-role evaluation. Builds, reviews, analyzes, and brainstorms with specialist agents. Every path ends with evaluation. /opc <task>, /opc -i <task>, /opc <role> [role...]"
 ---
 
@@ -528,7 +528,7 @@ Custom flows can be defined as JSON files in `~/.claude/flows/`. The harness loa
     "review": "review", "gate": "gate"
   },
   "softEvidence": true,
-  "opc_compat": ">=0.5",
+  "opc_compat": ">=0.10",
   "contextSchema": {
     "build": {
       "required": ["task"],
@@ -542,7 +542,7 @@ Custom flows can be defined as JSON files in `~/.claude/flows/`. The harness loa
 - `nodes`, `edges`, `limits` are required
 - All edge sources and targets must be in `nodes`
 - `nodeTypes` values must be: `discussion`, `build`, `review`, `execute`, `gate`
-- `opc_compat` uses `>=X.Y` semver range (current harness: 0.9.0)
+- `opc_compat` uses `>=X.Y` semver range (current harness compatibility: 0.10.0)
 - Prototype pollution names (`__proto__`, `constructor`, `prototype`) are rejected
 
 **Optional fields:**
@@ -619,7 +619,7 @@ The `transition` command enforces:
 
 **Agent spawn failures:** Retry once. If it fails again, surface to user.
 
-**Context compaction resilience:** OPC provides PreCompact/PostCompact hooks that automatically snapshot state and inject resume context after compaction. Run `opc install-hooks` to register them. When auto-compact fires:
+**Context compaction resilience:** OPC provides PreCompact/PostCompact hooks that automatically snapshot state and inject resume context after compaction. Run `opc install-hooks` to register them. These optional shell hooks require `jq`. When auto-compact fires:
 1. **PreCompact** writes a resume brief to `$SESSION_DIR/resume-brief.md`
 2. **PostCompact** injects the brief as `additionalContext` into the new context
 3. The orchestrator sees the injection and resumes the flow automatically

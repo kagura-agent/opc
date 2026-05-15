@@ -19,6 +19,7 @@
     "pipeline",
     "test",
     "examples",
+    "docs",
     "CONTRACTS.md",
     "INTEGRATION.md",
     "README.md",
