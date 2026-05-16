@@ -34,6 +34,36 @@ print_results() {
 echo "Test: install-hooks prereqs"
 echo "================================================"
 
+# ── Missing hook scripts (no prior install) ──────────────────────
+HOME_NO_INSTALL="$TMP/home-no-install"
+mkdir -p "$HOME_NO_INSTALL/.claude/skills/opc/bin/hooks"
+# hooks dir exists but scripts are absent
+
+set +e
+OUT=$(HOME="$HOME_NO_INSTALL" "$NODE_BIN" "$REPO_ROOT/bin/opc.mjs" install-hooks 2>&1)
+STATUS=$?
+set -e
+
+if [ "$STATUS" -ne 0 ]; then ok "install-hooks fails when hook scripts are missing"; else fail "install-hooks should fail without hook scripts"; fi
+assert_contains "$OUT" "missing hook script" "missing hook script error is explicit"
+if [ ! -f "$HOME_NO_INSTALL/.claude/settings.json" ]; then ok "settings not written when hook scripts missing"; else fail "settings should not be written when hook scripts missing"; fi
+
+# ── Partial hook scripts (only pre-compact present) ──────────────
+HOME_PARTIAL="$TMP/home-partial"
+mkdir -p "$HOME_PARTIAL"
+HOME="$HOME_PARTIAL" "$NODE_BIN" "$REPO_ROOT/bin/opc.mjs" install > /dev/null
+# Remove only the post-compact script
+rm -f "$HOME_PARTIAL/.claude/skills/opc/bin/hooks/opc-post-compact.sh"
+
+set +e
+OUT=$(HOME="$HOME_PARTIAL" "$NODE_BIN" "$REPO_ROOT/bin/opc.mjs" install-hooks 2>&1)
+STATUS=$?
+set -e
+
+if [ "$STATUS" -ne 0 ]; then ok "install-hooks fails when one hook script is missing"; else fail "install-hooks should fail with partial hook scripts"; fi
+assert_contains "$OUT" "opc-post-compact.sh" "error names the specific missing script"
+
+# ── Missing jq ───────────────────────────────────────────────────
 HOME_NO_JQ="$TMP/home-no-jq"
 NO_JQ_PATH="$TMP/no-jq-path"
 mkdir -p "$HOME_NO_JQ" "$NO_JQ_PATH"
