@@ -213,9 +213,12 @@ Each tick follows this sequence:
 ```
 1. Read loop-state.json → get next_unit
 2. Read plan.md → get unit details and acceptance criteria
-3. Review previous tick's output (review_of_previous)
-4. If previous tick has unfixed issues → fix first, then proceed
-5. Determine unit type → select OPC flow template:
+3. Skill check (pre-work): scan your session context for installed skills
+   designed for pre-task preparation (memory recall, context loading, etc.).
+   If any are found, invoke them now — before starting the unit.
+4. Review previous tick's output (review_of_previous)
+5. If previous tick has unfixed issues → fix first, then proceed
+6. Determine unit type → select OPC flow template:
    - spec/design units      → discussion protocol (no flow, direct execution)
    - implement units        → build-verify flow OR direct implementation
    - review units           → review flow with independent subagents
@@ -223,14 +226,17 @@ Each tick follows this sequence:
    - e2e-verify units       → executor-protocol (orchestrator runs directly)
    - accept units           → pre-release flow
    - **custom handler**     → if `next-tick` returns `handler`, dispatch to that skill/command instead of OPC's built-in dispatch (see Unit Handlers below)
-6. Execute the flow
-7. Verify output:
+7. Execute the flow
+8. Verify output:
    - Tests pass (pytest, vitest, etc.)
    - Build succeeds (vite build, cargo build, etc.)
    - UI changes → screenshot verification (MANDATORY, not optional)
    - API changes → curl/httpie verification
-8. Git commit (atomic, one per unit)
-9. Write updated loop-state.json (see format below)
+9. Git commit (atomic, one per unit)
+10. Skill check (post-work): scan your session context for installed skills
+    designed for post-task capture (knowledge retro, learning capture, etc.).
+    If any are found, invoke them now — before writing loop-state.
+11. Write updated loop-state.json (see format below)
 ```
 
 ### Step 5 — Verification Gate (per tick)
@@ -360,6 +366,8 @@ Key rules to re-verify each tick:
   - Use the unit's verify: line to run the correct verification command
   - Use opc-harness complete-tick with actual artifact paths (never skip)
   - On blocked/failed, include --description explaining why
+  - Pre-work: if any installed skills handle pre-task recall/preparation, invoke them before starting
+  - Post-work: if any installed skills handle post-task retro/capture, invoke them after completing
 Execute the current next_unit. After completion, call opc-harness complete-tick, then opc-harness next-tick.
 If next-tick returns terminate:true, call CronDelete to stop the loop.
 ```
