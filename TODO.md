@@ -5,7 +5,8 @@
 - [x] Add "Technical Writer" role → PR #25 (2026-05-25)
 - [x] Add "Localization" role → PR #26 (2026-05-27)
 - [x] Add "Data Engineer" role → PR #27 (2026-05-27)
-- [ ] Add "SRE" role — incident response, reliability, SLOs, capacity planning, chaos engineering
+- [x] Add "SRE" role → PR #28 (2026-05-28)
+- [ ] Add "DBA" role — schema design, query optimization, migrations, indexing, data modeling
 
 ## Done
 
