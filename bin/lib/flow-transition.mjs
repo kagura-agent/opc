@@ -103,6 +103,26 @@ export function cmdTransition(args) {
     if (!resolvedTpl.error) {
       const edges = resolvedTpl.template.edges[from];
       if (edges && edges[verdict] === null) {
+        // ── Step 1.5: Structured result check for terminal gate transitions ──
+        // Terminal PASS edges delegate to cmdFinalize, bypassing _cmdTransitionLocked.
+        // We must check here to prevent finalize-path bypass.
+        const nodeType = resolvedTpl.template.nodeTypes?.[from];
+        if (nodeType === "gate" && verdict !== "FAIL") {
+          const stPath = join(dir, "flow-state.json");
+          let st = null;
+          try { st = JSON.parse(readFileSync(stPath, "utf8")); } catch { /* handled below */ }
+          if (st) {
+            const failReasons = checkStructuredResults(dir, st, resolvedTpl.template, from);
+            if (failReasons.length > 0) {
+              console.log(JSON.stringify({
+                allowed: false,
+                reason: `Step 1.5 structural check failed: ${failReasons.join("; ")} — verdict must be FAIL, not ${verdict}`,
+                structuredFailReasons: failReasons,
+              }));
+              return;
+            }
+          }
+        }
         // Valid terminal edge — run finalize instead
         cmdFinalize(args);
         return;
@@ -386,6 +406,19 @@ function _cmdTransitionLocked(from, to, verdict, flow, dir, template, statePath)
   }
 
   if (isGate) {
+    // ── Step 1.5: Structured result check (universal enforcement) ──
+    // This runs on EVERY gate transition, regardless of entry path
+    // (advance, pass, direct transition). Belt-and-suspenders with cmdAdvance.
+    const structuredFailReasons = checkStructuredResults(dir, state, template, from);
+    if (structuredFailReasons.length > 0 && verdict !== "FAIL") {
+      console.log(JSON.stringify({
+        allowed: false,
+        reason: `Step 1.5 structural check failed: ${structuredFailReasons.join("; ")} — verdict must be FAIL, not ${verdict}`,
+        structuredFailReasons,
+      }));
+      return;
+    }
+
     const gateDir = join(dir, "nodes", from);
     mkdirSync(gateDir, { recursive: true });
     const gateHandshake = {
