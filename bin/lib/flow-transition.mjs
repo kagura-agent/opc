@@ -2,7 +2,7 @@
 // Depends on: flow-templates.mjs, flow-core.mjs (validateHandshakeData), viz-commands.mjs, util.mjs, file-lock.mjs
 
 import { readFileSync, readdirSync, mkdirSync, existsSync } from "fs";
-import { join, dirname } from "path";
+import { join, dirname, resolve } from "path";
 import { fileURLToPath } from "url";
 import os from "os";
 import { execFileSync } from "child_process";
@@ -16,6 +16,69 @@ import {
 import { lockFile } from "./file-lock.mjs";
 import { resolveBypass } from "./extensions.mjs";
 import { parseBypassArgs } from "./bypass-args.mjs";
+
+// ─── Step 1.5: Structured result check (extracted for testability) ───
+
+/**
+ * Scan upstream nodes (since last gate) for artifacts with type "report" or
+ * "test-result". Returns an array of fail reasons. Empty array = PASS.
+ * Fail-closed: unreadable artifacts produce a fail reason.
+ */
+export function checkStructuredResults(dir, state, template, currentNode) {
+  const structuredFailReasons = [];
+  const histNoGates = state.history.filter(h => {
+    const nt = template.nodeTypes?.[h.nodeId];
+    return nt && nt !== "gate";
+  });
+  let lastGateHistIdx = -1;
+  for (let i = state.history.length - 1; i >= 0; i--) {
+    const h = state.history[i];
+    const nt = template.nodeTypes?.[h.nodeId];
+    if (nt === "gate" && h.nodeId !== currentNode) {
+      lastGateHistIdx = i;
+      break;
+    }
+  }
+  const upstreamNodes = lastGateHistIdx === -1
+    ? histNoGates
+    : state.history.slice(lastGateHistIdx + 1).filter(h => {
+        const nt = template.nodeTypes?.[h.nodeId];
+        return nt && nt !== "gate";
+      });
+
+  const seen = new Set();
+  for (const entry of upstreamNodes) {
+    if (seen.has(entry.nodeId)) continue;
+    seen.add(entry.nodeId);
+    const hsPath = join(dir, "nodes", entry.nodeId, "handshake.json");
+    if (!existsSync(hsPath)) continue;
+    let hs;
+    try { hs = JSON.parse(readFileSync(hsPath, "utf8")); } catch { continue; }
+    if (!Array.isArray(hs.artifacts)) continue;
+
+    for (const art of hs.artifacts) {
+      if (art.type !== "report" && art.type !== "test-result") continue;
+      const artPath = resolve(join(dir, "nodes", entry.nodeId), art.path);
+      let data;
+      try {
+        data = JSON.parse(readFileSync(artPath, "utf8"));
+      } catch (e) {
+        structuredFailReasons.push(`artifact ${art.path} unreadable — fail-closed`);
+        continue;
+      }
+      const safeInt = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : 0; };
+      if (safeInt(data.test_fail_count) > 0)
+        structuredFailReasons.push(`${safeInt(data.test_fail_count)} test(s) failed`);
+      if (safeInt(data.dead_test_count) > 0)
+        structuredFailReasons.push(`${safeInt(data.dead_test_count)} dead test(s) detected`);
+      if (safeInt(data.p0_count) > 0)
+        structuredFailReasons.push(`${safeInt(data.p0_count)} P0 issue(s) unresolved`);
+      if (String(data.sync_check_status || "").toUpperCase() === "FAIL")
+        structuredFailReasons.push("sync-check failed");
+    }
+  }
+  return structuredFailReasons;
+}
 
 // ─── transition ─────────────────────────────────────────────────
 
@@ -560,8 +623,15 @@ export function cmdAdvance(args) {
   } catch {
     synthResult = {};
   }
-  const verdict = synthResult.verdict || "PASS";
-  console.error(`[advance] verdict: ${verdict}`);
+  let verdict = synthResult.verdict || "PASS";
+  console.error(`[advance] synthesize verdict: ${verdict}`);
+
+  // ── Step 1.5: Structured result check ──────────────────────────
+  const structuredFailReasons = checkStructuredResults(dir, state, template, currentNode);
+  if (structuredFailReasons.length > 0) {
+    verdict = "FAIL";
+    console.error(`[advance] Step 1.5 override → FAIL: ${structuredFailReasons.join("; ")}`);
+  }
 
   // Step 2: route
   console.error(`[advance] routing ${currentNode} --${verdict}-->...`);
