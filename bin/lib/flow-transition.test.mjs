@@ -2,12 +2,15 @@
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import os from "node:os";
+import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
 import { checkStructuredResults } from "./flow-transition.mjs";
 
-const TMPBASE = join(tmpdir(), `ft-test-${Date.now()}`);
+const TMPBASE = join(os.homedir(), ".opc", "sessions", `ft-test-${Date.now()}`);
+const HARNESS = join(dirname(fileURLToPath(import.meta.url)), "..", "opc-harness.mjs");
 
 // Minimal template with build-verify topology
 const TEMPLATE = {
@@ -186,5 +189,137 @@ describe("checkStructuredResults — Step 1.5", () => {
     });
     const reasons = checkStructuredResults(dir, makeState(), TEMPLATE, "gate");
     assert.equal(reasons.length, 0, "screenshot artifacts should be ignored");
+  });
+});
+
+// ─── Integration: bypass path enforcement via harness CLI ─────────────
+
+/** Create a full session dir that cmdTransition/cmdPass will accept. */
+function createSession(name, { artifacts = [], failingReport = false } = {}) {
+  const dir = join(TMPBASE, name);
+  mkdirSync(join(dir, "nodes", "build", "run_1"), { recursive: true });
+  mkdirSync(join(dir, "nodes", "code-review", "run_1"), { recursive: true });
+  mkdirSync(join(dir, "nodes", "test-design", "run_1"), { recursive: true });
+  mkdirSync(join(dir, "nodes", "test-execute", "run_1"), { recursive: true });
+  mkdirSync(join(dir, "nodes", "gate"), { recursive: true });
+
+  // Write eval files so synthesize produces a verdict
+  writeFileSync(join(dir, "nodes", "test-execute", "run_1", "eval-engineer.md"),
+    "# Engineer Review\n**Verdict: ✅ APPROVE**\nNo issues.\n");
+
+  // Write handshakes for upstream nodes
+  for (const nodeId of ["build", "code-review", "test-design", "test-execute"]) {
+    const hs = {
+      nodeId, nodeType: TEMPLATE.nodeTypes[nodeId] || "build", runId: "run_1",
+      status: "completed", summary: "done", timestamp: new Date().toISOString(),
+      artifacts: nodeId === "build" ? artifacts : [],
+      verdict: null,
+    };
+    writeFileSync(join(dir, "nodes", nodeId, "handshake.json"), JSON.stringify(hs));
+    // test-execute needs evidence
+    if (nodeId === "test-execute") {
+      writeFileSync(join(dir, "nodes", nodeId, "run_1", "evidence.md"), "test passed");
+      hs.artifacts = [{ type: "log", path: "run_1/evidence.md" }];
+      hs.nodeType = "execute";
+      writeFileSync(join(dir, "nodes", nodeId, "handshake.json"), JSON.stringify(hs));
+    }
+  }
+
+  // Write failing test report if requested
+  if (failingReport) {
+    const reportPath = join(dir, "nodes", "build", "run_1", "test-report.json");
+    writeFileSync(reportPath, JSON.stringify({ test_fail_count: 3, dead_test_count: 0 }));
+    // Update build handshake with artifact reference
+    const buildHs = JSON.parse(
+      readFileSync(join(dir, "nodes", "build", "handshake.json"), "utf8")
+    );
+    buildHs.artifacts = [{ type: "test-result", path: "run_1/test-report.json" }];
+    writeFileSync(join(dir, "nodes", "build", "handshake.json"), JSON.stringify(buildHs));
+  }
+
+  // flow-state.json: currentNode = gate
+  const flowState = {
+    version: "1.0",
+    flowTemplate: "build-verify",
+    currentNode: "gate",
+    entryNode: "build",
+    totalSteps: 4,
+    maxTotalSteps: 25,
+    maxLoopsPerEdge: 3,
+    maxNodeReentry: 5,
+    edgeCounts: {},
+    history: [
+      { nodeId: "build", runId: "run_1", timestamp: new Date().toISOString() },
+      { nodeId: "code-review", runId: "run_1", timestamp: new Date().toISOString() },
+      { nodeId: "test-design", runId: "run_1", timestamp: new Date().toISOString() },
+      { nodeId: "test-execute", runId: "run_1", timestamp: new Date().toISOString() },
+      { nodeId: "gate", runId: "run_1", timestamp: new Date().toISOString() },
+    ],
+    _written_by: "opc-harness",
+    _write_nonce: `test-${Date.now()}`,
+    _last_modified: new Date().toISOString(),
+  };
+  writeFileSync(join(dir, "flow-state.json"), JSON.stringify(flowState, null, 2));
+  return dir;
+}
+
+function runHarness(cmd, args) {
+  try {
+    const output = execFileSync("node", [HARNESS, cmd, ...args], {
+      encoding: "utf8", stdio: ["pipe", "pipe", "pipe"],
+    });
+    const lines = output.trim().split("\n");
+    return JSON.parse(lines[lines.length - 1]);
+  } catch (err) {
+    const stdout = err.stdout || "";
+    const lines = stdout.trim().split("\n");
+    try { return JSON.parse(lines[lines.length - 1]); } catch {
+      return { error: err.message, stderr: err.stderr };
+    }
+  }
+}
+
+describe("Step 1.5 bypass enforcement — cmdTransition", () => {
+  test("direct transition PASS with failing artifacts → rejected", () => {
+    const dir = createSession("bypass-transition", { failingReport: true });
+    const result = runHarness("transition", [
+      "--from", "gate", "--to", "null", "--verdict", "PASS",
+      "--flow", "build-verify", "--dir", dir,
+    ]);
+    assert.equal(result.allowed, false, `should be rejected, got: ${JSON.stringify(result)}`);
+    assert.ok(
+      result.reason?.includes("Step 1.5") || result.reason?.includes("structural"),
+      `reason should mention Step 1.5, got: ${result.reason}`
+    );
+  });
+
+  test("direct transition FAIL with failing artifacts → allowed (correct verdict)", () => {
+    const dir = createSession("bypass-transition-fail", { failingReport: true });
+    const result = runHarness("transition", [
+      "--from", "gate", "--to", "build", "--verdict", "FAIL",
+      "--flow", "build-verify", "--dir", dir,
+    ]);
+    assert.equal(result.allowed, true, `FAIL verdict should be allowed, got: ${JSON.stringify(result)}`);
+  });
+
+  test("direct transition PASS with clean artifacts → allowed (finalized)", () => {
+    const dir = createSession("bypass-transition-clean");
+    const result = runHarness("transition", [
+      "--from", "gate", "--to", "null", "--verdict", "PASS",
+      "--flow", "build-verify", "--dir", dir,
+    ]);
+    // Terminal PASS → delegates to cmdFinalize, returns {finalized: true}
+    const allowed = result.allowed === true || result.finalized === true;
+    assert.ok(allowed, `clean PASS should be allowed/finalized, got: ${JSON.stringify(result)}`);
+  });
+});
+
+describe("Step 1.5 bypass enforcement — cmdPass", () => {
+  test("/opc pass with failing artifacts → rejected", () => {
+    const dir = createSession("bypass-pass", { failingReport: true });
+    const result = runHarness("pass", ["--dir", dir]);
+    // cmdPass either returns {error: ...} or delegates to transition which returns {allowed: false}
+    const rejected = result.allowed === false || result.error != null;
+    assert.ok(rejected, `should be rejected, got: ${JSON.stringify(result)}`);
   });
 });
