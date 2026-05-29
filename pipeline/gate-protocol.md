@@ -23,6 +23,38 @@ The synthesize command stacks 11 defense layers per role (thinEval, noCodeRefs, 
 
 **Evaluator guidance (feedback loop):** When D2 triggers, the output includes `evaluatorGuidance` — a per-role object with `triggeredLayers` (which checks failed) and `hints` (actionable fix instructions). On ITERATE, the orchestrator SHOULD inject this guidance into the R2 evaluator prompt so the evaluator knows exactly what to fix.
 
+### Step 1.5 — Structured Result Check
+
+Before mechanical validation, the gate reads structured data from upstream artifacts. This catches failures that the verdict alone cannot express (e.g., a node can PASS at the orchestration level while its report contains test failures).
+
+**Artifact schema:** Upstream nodes (especially execute and build nodes) MAY write structured result files as part of their artifacts. These files are JSON objects containing any subset of the fields below. The artifact's `type` in the handshake must be `"report"` or `"test-result"` for this check to read it. The path in `artifacts[].path` is relative to the node directory.
+
+**Procedure:**
+
+1. Scan `$SESSION_DIR/nodes/*/handshake.json` for all upstream nodes in this gate's path
+2. For each handshake, inspect the `artifacts[]` array. For artifacts with type `report` or `test-result`, read the referenced file
+3. **Error handling:** If an artifact file is missing, unreadable, or contains malformed JSON → treat as **FAIL** with reason `"artifact {path} unreadable — fail-closed"`. Structured checks are fail-closed: broken data = gate FAIL, not silent pass.
+4. Parse these structured fields (if present in the artifact JSON). **Type coercion:** numeric fields may appear as strings (e.g., `"3"` vs `3`); coerce to integer before comparison. If coercion fails (non-numeric string) → treat as 0 and log a warning.
+   - `test_fail_count` — number of failed tests
+   - `dead_test_count` — number of dead/unreachable tests
+   - `p0_count` — number of unresolved P0 issues
+   - `sync_check_status` — sync verification result (`"PASS"` or `"FAIL"`)
+5. Apply hard FAIL rules — any single violation triggers gate FAIL:
+
+| Field | Condition | Gate action | Reason string |
+|-------|-----------|-------------|---------------|
+| `test_fail_count` | `> 0` | **FAIL** | `"{N} test(s) failed"` |
+| `dead_test_count` | `> 0` | **FAIL** | `"{N} dead test(s) detected"` |
+| `p0_count` | `> 0` | **FAIL** | `"{N} P0 issue(s) unresolved"` |
+| `sync_check_status` | `== "FAIL"` | **FAIL** | `"sync-check failed"` |
+
+6. If multiple fields trigger, concatenate all reasons (semicolon-separated) into one FAIL verdict
+7. If no artifacts with type `report` or `test-result` exist in any upstream handshake, this step is a no-op (backward compatible — older sessions without structured data pass through)
+
+**This check applies to ALL gate nodes** (gate-test, gate-acceptance, gate-audit, gate-e2e, gate-final), not just gate-final. The principle: if any upstream node produced structured evidence of failure, the gate must catch it regardless of the node-level verdict.
+
+**Override:** The orchestrator MUST NOT skip or relax these rules. If structured data says tests failed, the gate FAILs — even if the upstream node verdict was PASS. The only way past this is `/opc pass` (explicit user override).
+
 ### Step 2 — Mechanical Validation
 
 Before accepting the synthesized verdict, verify upstream quality:
