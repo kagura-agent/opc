@@ -7,7 +7,7 @@
 - [x] Add "Data Engineer" role → PR #27 (2026-05-27)
 - [x] Add "SRE" role → PR #28 (2026-05-28)
 - [x] Add "DBA" role → PR #29 (2026-05-29)
-- [ ] Add "ML Engineer" role — model training, data pipelines, experiment tracking, feature engineering, model serving
+- [x] Add "ML Engineer" role → PR #30 (2026-05-30)
 
 ## Done
 
